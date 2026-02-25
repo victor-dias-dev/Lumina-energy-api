@@ -39,7 +39,11 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document);
 
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+
+  await app.listen(port, '0.0.0.0');
+  
+  logger.log(`Aplicação rodando na porta ${port}`);
+  logger.log(`Swagger disponível em /api`);
 
   logger.log(`Aplicação rodando em http://localhost:${port}`);
   logger.log(`Swagger disponível em http://localhost:${port}/api`);
