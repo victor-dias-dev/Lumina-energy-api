@@ -10,7 +10,8 @@ import { EnergyBill } from './modules/bills/entities/energy-bill.entity';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
 
 const databaseUrl = process.env.DATABASE_URL;
-const usePostgres = databaseUrl?.startsWith('postgres://') || databaseUrl?.startsWith('postgresql://');
+console.log('databaseUrl', databaseUrl);
+const usePostgres = databaseUrl?.startsWith('postgresql://') || databaseUrl?.startsWith('postgresql://');
 
 const sequelizeConfig = usePostgres
   ? {
@@ -19,10 +20,12 @@ const sequelizeConfig = usePostgres
       autoLoadModels: true,
       synchronize: true,
       models: [EnergyBill],
-      dialectOptions:
-        process.env.NODE_ENV === 'production'
-          ? { ssl: { rejectUnauthorized: false } }
-          : {},
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      },
     }
   : {
       dialect: 'sqlite' as const,
