@@ -15,27 +15,33 @@ function buildPostgresConfig() {
     return null;
   }
 
-  // Garantir porta 5432; sslmode=require só para External (host .render.com)
-  let url = databaseUrl;
+  let parsed: URL;
   try {
-    const parsed = new URL(databaseUrl);
-    if (!parsed.port) parsed.port = '5432';
-    if (parsed.hostname.includes('.render.com') && !parsed.searchParams.has('sslmode')) {
-      parsed.searchParams.set('sslmode', 'require');
-    }
-    url = parsed.toString();
+    parsed = new URL(databaseUrl);
   } catch {
-    /* usar URL original */
+    return null;
   }
+
+  const host = parsed.hostname;
+  const port = parsed.port ? parseInt(parsed.port, 10) : 5432;
+  const database = parsed.pathname?.slice(1) || 'postgres';
+  const username = decodeURIComponent(parsed.username || '');
+  const password = decodeURIComponent(parsed.password || '');
+
+  const useSsl = process.env.DATABASE_SSL !== 'false' && host.includes('.render.com');
 
   return {
     dialect: 'postgres' as const,
-    url,
+    host,
+    port,
+    database,
+    username,
+    password,
     autoLoadModels: true,
     synchronize: true,
     models: [EnergyBill],
     dialectOptions: {
-      ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+      ssl: useSsl ? { rejectUnauthorized: false } : false,
       connectionTimeoutMillis: 60000,
     },
     pool: {

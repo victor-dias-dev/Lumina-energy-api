@@ -18,9 +18,6 @@ async function waitForPostgres(maxAttempts = 30, delayMs = 2000): Promise<void> 
   try {
     const parsed = new URL(databaseUrl);
     if (!parsed.port) parsed.port = '5432';
-    if (parsed.hostname.includes('.render.com') && !parsed.searchParams.has('sslmode')) {
-      parsed.searchParams.set('sslmode', 'require');
-    }
     url = parsed.toString();
   } catch {
     /* usar original */
