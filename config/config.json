@@ -1,0 +1,14 @@
+{
+  "development": {
+    "dialect": "sqlite",
+    "storage": "./data/energy_bills.sqlite"
+  },
+  "test": {
+    "dialect": "sqlite",
+    "storage": "./data/energy_bills_test.sqlite"
+  },
+  "production": {
+    "dialect": "sqlite",
+    "storage": "./data/energy_bills.sqlite"
+  }
+}
