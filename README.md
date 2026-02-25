@@ -258,6 +258,15 @@ O SQLite exige bindings nativos que falham no Render. **Use PostgreSQL** (gratui
 
 Quando `DATABASE_URL` começa com `postgres://` ou `postgresql://`, a API usa PostgreSQL automaticamente (sem sqlite3). O Sequelize criará as tabelas com `synchronize: true` no primeiro deploy.
 
+**Opção: Blueprint (render.yaml)**  
+O projeto inclui `render.yaml` para deploy via Blueprint. Isso cria banco e API na mesma região (Oregon), garantindo que a Internal URL funcione. No Dashboard: Blueprints → New Blueprint Instance → selecione o repositório.
+
+**Se Connection Refused persistir:**
+1. **Região:** Web Service e PostgreSQL devem estar na **mesma região** (ex: Oregon). Verifique em Settings → Region.
+2. **DATABASE_URL:** Use "Add from Database" no Web Service para injetar a URL correta (evita typo).
+3. **External URL:** Se Internal falhar, teste com a External Database URL — funciona de qualquer região.
+4. **Aguarde:** A API tenta conectar por até 60s no startup; banco Free pode demorar para acordar.
+
 ## Decisões Arquiteturais
 
 - **NestJS**: Estrutura modular, injeção de dependência e boa testabilidade.

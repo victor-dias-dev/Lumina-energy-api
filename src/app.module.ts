@@ -9,42 +9,75 @@ import { GeminiModule } from './gemini/gemini.module';
 import { EnergyBill } from './modules/bills/entities/energy-bill.entity';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
 
-const databaseUrl = process.env.DATABASE_URL;
-const usePostgres =
-  databaseUrl?.startsWith('postgres://') || databaseUrl?.startsWith('postgresql://');
+function buildPostgresConfig() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl?.startsWith('postgres://') && !databaseUrl?.startsWith('postgresql://')) {
+    return null;
+  }
 
-const sequelizeConfig = usePostgres
-  ? {
-      dialect: 'postgres' as const,
-      url: databaseUrl,
-      autoLoadModels: true,
-      synchronize: true,
-      models: [EnergyBill],
-      dialectOptions: {
-        ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-      },
-      pool: {
-        max: 5,
-        min: 0,
-        acquire: 60000,
-        idle: 10000,
-      },
+  // Garantir porta 5432; sslmode=require só para External (host .render.com)
+  let url = databaseUrl;
+  try {
+    const parsed = new URL(databaseUrl);
+    if (!parsed.port) parsed.port = '5432';
+    if (parsed.hostname.includes('.render.com') && !parsed.searchParams.has('sslmode')) {
+      parsed.searchParams.set('sslmode', 'require');
     }
-  : {
-      dialect: 'sqlite' as const,
-      storage:
-        process.env.DATABASE_PATH
-          ? path.resolve(process.env.DATABASE_PATH)
-          : path.join(process.cwd(), 'data', 'energy_bills.sqlite'),
-      autoLoadModels: true,
-      synchronize: true,
-      models: [EnergyBill],
-    };
+    url = parsed.toString();
+  } catch {
+    /* usar URL original */
+  }
+
+  return {
+    dialect: 'postgres' as const,
+    url,
+    autoLoadModels: true,
+    synchronize: true,
+    models: [EnergyBill],
+    dialectOptions: {
+      ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+      connectionTimeoutMillis: 60000,
+    },
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 60000,
+      idle: 10000,
+    },
+    retry: {
+      max: 10,
+      match: [
+        /SequelizeConnectionError/,
+        /SequelizeConnectionRefusedError/,
+        /SequelizeHostNotFoundError/,
+        /SequelizeConnectionAcquireTimeoutError/,
+      ],
+    },
+  };
+}
+
+function buildSqliteConfig() {
+  return {
+    dialect: 'sqlite' as const,
+    storage:
+      process.env.DATABASE_PATH
+        ? path.resolve(process.env.DATABASE_PATH)
+        : path.join(process.cwd(), 'data', 'energy_bills.sqlite'),
+    autoLoadModels: true,
+    synchronize: true,
+    models: [EnergyBill],
+  };
+}
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    SequelizeModule.forRoot(sequelizeConfig),
+    SequelizeModule.forRootAsync({
+      useFactory: () => {
+        const postgresConfig = buildPostgresConfig();
+        return postgresConfig ?? buildSqliteConfig();
+      },
+    }),
     GeminiModule,
     BillsModule,
   ],
