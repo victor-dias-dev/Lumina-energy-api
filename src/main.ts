@@ -8,13 +8,20 @@ import * as path from 'path';
 const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
-  const dbPath = process.env.DATABASE_PATH || './data/energy_bills.sqlite';
-  const dbDir = path.dirname(dbPath);
-  if (!fs.existsSync(dbDir)) {
-    logger.log(`Criando diretório do banco: ${dbDir}`);
-    fs.mkdirSync(dbDir, { recursive: true });
+  const databaseUrl = process.env.DATABASE_URL;
+  const usePostgres = databaseUrl?.startsWith('postgres://') || databaseUrl?.startsWith('postgresql://');
+
+  if (usePostgres) {
+    logger.log('Banco de dados: PostgreSQL');
+  } else {
+    const dbPath = process.env.DATABASE_PATH || './data/energy_bills.sqlite';
+    const dbDir = path.dirname(dbPath);
+    if (!fs.existsSync(dbDir)) {
+      logger.log(`Criando diretório do banco: ${dbDir}`);
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+    logger.log(`Banco de dados: ${path.resolve(dbPath)}`);
   }
-  logger.log(`Banco de dados: ${path.resolve(dbPath)}`);
 
   const app = await NestFactory.create(AppModule);
   app.enableCors();

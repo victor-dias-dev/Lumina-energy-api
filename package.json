@@ -7,6 +7,8 @@
   "license": "MIT",
   "scripts": {
     "build": "nest build",
+    "postinstall": "pnpm rebuild sqlite3 || true",
+    "render:build": "pnpm rebuild sqlite3 && pnpm run build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -31,6 +33,7 @@
     "@nestjs/swagger": "^7.4.2",
     "multer": "^1.4.5-lts.1",
     "nestjs-zod": "^5.1.1",
+    "pg": "^8.18.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "sequelize": "^6.35.0",

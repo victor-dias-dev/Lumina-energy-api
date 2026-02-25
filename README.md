@@ -37,7 +37,8 @@ pnpm db:migrate
 |----------|-----------|
 | `GEMINI_API_KEY` | Chave da API Google Gemini (obrigatória para upload) |
 | `GEMINI_MODEL` | Modelo preferido (opcional; fallback automático em 503) |
-| `DATABASE_PATH` | Caminho do arquivo SQLite (default: `./data/energy_bills.sqlite`) |
+| `DATABASE_PATH` | Caminho do SQLite (default: `./data/energy_bills.sqlite`) — usado quando `DATABASE_URL` não está definida |
+| `DATABASE_URL` | URL PostgreSQL (ex: `postgresql://user:pass@host:5432/db`) — quando definida, usa PostgreSQL em vez de SQLite |
 | `NODE_ENV` | Ambiente (development/production) |
 | `PORT` | Porta do servidor (default: 3000) |
 
@@ -232,6 +233,30 @@ pnpm db:migrate:undo:all
    ```bash
    node dist/main.js
    ```
+
+### Deploy no Render (recomendado: PostgreSQL)
+
+O SQLite exige bindings nativos que falham no Render. **Use PostgreSQL** (gratuito no Render):
+
+1. **Crie um banco PostgreSQL** no Render (Dashboard → New → PostgreSQL).
+
+2. **Copie a Internal Database URL** (ou External, se a API estiver em outro serviço).
+
+3. **Configure no Web Service:**
+
+| Campo | Valor |
+|-------|-------|
+| **Build Command** | `pnpm install && pnpm run build` |
+| **Start Command** | `pnpm run start:prod` |
+
+4. **Variáveis de ambiente:**
+
+| Variável | Valor |
+|----------|-------|
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/dbname` (URL do Render) |
+| `GEMINI_API_KEY` | Sua chave da API Gemini |
+
+Quando `DATABASE_URL` começa com `postgres://` ou `postgresql://`, a API usa PostgreSQL automaticamente (sem sqlite3). O Sequelize criará as tabelas com `synchronize: true` no primeiro deploy.
 
 ## Decisões Arquiteturais
 

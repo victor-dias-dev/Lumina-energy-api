@@ -9,20 +9,36 @@ import { GeminiModule } from './gemini/gemini.module';
 import { EnergyBill } from './modules/bills/entities/energy-bill.entity';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
 
-const dbPath = process.env.DATABASE_PATH
-  ? path.resolve(process.env.DATABASE_PATH)
-  : path.join(process.cwd(), 'data', 'energy_bills.sqlite');
+const databaseUrl = process.env.DATABASE_URL;
+const usePostgres = databaseUrl?.startsWith('postgres://') || databaseUrl?.startsWith('postgresql://');
+
+const sequelizeConfig = usePostgres
+  ? {
+      dialect: 'postgres' as const,
+      url: databaseUrl,
+      autoLoadModels: true,
+      synchronize: true,
+      models: [EnergyBill],
+      dialectOptions:
+        process.env.NODE_ENV === 'production'
+          ? { ssl: { rejectUnauthorized: false } }
+          : {},
+    }
+  : {
+      dialect: 'sqlite' as const,
+      storage:
+        process.env.DATABASE_PATH
+          ? path.resolve(process.env.DATABASE_PATH)
+          : path.join(process.cwd(), 'data', 'energy_bills.sqlite'),
+      autoLoadModels: true,
+      synchronize: true,
+      models: [EnergyBill],
+    };
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    SequelizeModule.forRoot({
-      dialect: 'sqlite',
-      storage: dbPath,
-      autoLoadModels: true,
-      synchronize: true,
-      models: [EnergyBill],
-    }),
+    SequelizeModule.forRoot(sequelizeConfig),
     GeminiModule,
     BillsModule,
   ],
