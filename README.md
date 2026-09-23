@@ -1,85 +1,83 @@
 # Lumi Energy Bill API
 
-API RESTful para processamento de faturas de energia elétrica em PDF, utilizando Google Gemini para extração de dados via análise multimodal.
+[![CI](https://github.com/victor-dias-dev/lumi-energy-bill-api/actions/workflows/ci.yml/badge.svg)](https://github.com/victor-dias-dev/lumi-energy-bill-api/actions/workflows/ci.yml)
 
-## Tecnologias
+HTTP API that reads a Brazilian electricity bill PDF, asks Gemini for a fixed JSON shape, and stores consumption, compensated energy, and the bill value without distributed generation.
 
-- **TypeScript** - Linguagem
-- **NestJS** - Framework Node.js
-- **Sequelize** - ORM
-- **SQLite** - Banco de dados relacional
-- **Google Gemini** - LLM multimodal para análise de PDFs
-- **Zod** - Validação de schemas e DTOs
-- **Swagger** - Documentação interativa da API
+The checked-in sample scores **100.0%** field accuracy (`9/9` fields, 1 synthetic bill) via `pnpm eval`. That number compares `fixtures/cassettes` with `fixtures/golden`. It is not a production benchmark. Refresh it against a live model with `EVAL_LIVE=1 pnpm eval`.
 
-## Pré-requisitos
+## Stack
 
-- Node.js 20+
-- Chave de API do Google Gemini ([Google AI Studio](https://aistudio.google.com/apikey))
+- TypeScript, NestJS
+- Sequelize, SQLite locally, PostgreSQL in production
+- Google Gemini, Zod
+- Swagger at `/api` when enabled
 
-## Setup
+## Quick start
+
+Requirements: Node.js 20+, pnpm, a [Gemini API key](https://aistudio.google.com/apikey).
 
 ```bash
-# Instalar dependências
 pnpm install
-
-# Configurar variáveis de ambiente
 cp .env.example .env
-# Edite .env e defina GEMINI_API_KEY
-
-# Rodar migrations do banco
 pnpm db:migrate
+pnpm start:dev
 ```
 
-## Variáveis de Ambiente
-
-| Variável | Descrição |
-|----------|-----------|
-| `GEMINI_API_KEY` | Chave da API Google Gemini (obrigatória para upload) |
-| `GEMINI_MODEL` | Modelo preferido (opcional; fallback automático em 503) |
-| `DATABASE_PATH` | Caminho do SQLite (default: `./data/energy_bills.sqlite`) — usado quando `DATABASE_URL` não está definida |
-| `DATABASE_URL` | URL PostgreSQL (ex: `postgresql://user:pass@host:5432/db`) — quando definida, usa PostgreSQL em vez de SQLite |
-| `NODE_ENV` | Ambiente (development/production) |
-| `PORT` | Porta do servidor (default: 3000) |
-
-## Execução
+Swagger: `http://localhost:3000/api`
 
 ```bash
-# Desenvolvimento
-pnpm start:dev
-
-# Produção
+pnpm test
+pnpm test:e2e
+pnpm eval
 pnpm build
-pnpm start:prod
 ```
 
-## Swagger (Documentação Interativa)
+Docker Compose runs Postgres 16 and the API. The container migrates on startup.
 
-Em produção ou desenvolvimento, a API expõe Swagger UI para testar os endpoints:
+```bash
+docker compose up --build
+```
 
-**URL:** `http://localhost:3000/api` (ou `https://seu-dominio.com/api` em produção)
+## Environment
 
-No Swagger você pode:
-- Visualizar todos os endpoints e schemas
-- Testar requisições diretamente no navegador
-- Enviar upload de PDF e ver respostas em tempo real
+| Variable | Role |
+| --- | --- |
+| `GEMINI_API_KEY` | Required for upload |
+| `GEMINI_MODEL` | Preferred model. On HTTP 503 the service tries the next model in the list |
+| `GEMINI_LAYOUT` | Layout id. Only `default` is registered |
+| `DATABASE_PATH` | SQLite file when `DATABASE_URL` is not a Postgres URL. Default `./data/energy_bills.sqlite` |
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` |
+| `DATABASE_SSL` | Set to `false` for a database you run yourself. On a `*.render.com` host the client uses TLS and does not verify the certificate |
+| `CORS_ORIGIN` | Comma-separated origins. Default `http://localhost:3000` |
+| `API_KEY` | When set, `POST /bills/upload` requires header `x-api-key` |
+| `SWAGGER_ENABLED` | `true` or `false`. Off in production unless set to `true` |
+| `UPLOAD_RATE_LIMIT` | Uploads per window. Default `10` |
+| `UPLOAD_RATE_TTL_MS` | Window length. Default `60000` |
+| `PORT` | Default `3000` |
 
-## Endpoints
+Schema comes from `migrations/`. The app does not use `synchronize`.
 
-### 1. Upload / Processamento
+A public demo should set `API_KEY`. Without it, anyone who can reach the process can spend the Gemini quota.
 
-Envia um PDF de fatura de energia para extração via LLM e persistência no banco.
+## API
+
+Responses use snake_case.
+
+### `POST /bills/upload`
+
+PDF only, 10 MB maximum. `400` for a missing file, a non-PDF, or a file over the limit. `401` when `API_KEY` is set and the header does not match. `409` when the same client and reference month were already stored (also enforced by a unique index). `422` when the model response does not match the schema. `429` after the upload rate limit. `503` when Gemini is unavailable.
 
 ```bash
 curl -X POST http://localhost:3000/bills/upload \
-  -F "file=@/caminho/para/fatura.pdf"
+  -H "x-api-key: $API_KEY" \
+  -F "file=@fixtures/golden/sample-bill.pdf"
 ```
 
-**Response 201 (snake_case):**
 ```json
 {
   "id": 1,
-  "numero_cliente": "7202210726",
+  "numero_cliente": "1000000001",
   "mes_referencia": "SET/2024",
   "energia_eletrica_kwh": 50,
   "energia_eletrica_valor": 25.5,
@@ -90,215 +88,90 @@ curl -X POST http://localhost:3000/bills/upload \
   "contrib_ilum_publica": 10,
   "consumo_total_kwh": 526,
   "valor_total_sem_gd": 273.5,
-  "economia_gd": 50,
-  "created_at": "2024-02-24T...",
-  "updated_at": "2024-02-24T..."
+  "economia_gd": 50
 }
 ```
 
-### 2. Listagem (Biblioteca de Faturas)
+Calculated fields:
 
-Lista faturas processadas com filtros opcionais.
+- `consumo_total_kwh` = electrical energy kWh + SCEEE kWh
+- `valor_total_sem_gd` = electrical energy BRL + SCEEE BRL + public lighting
+- `economia_gd` = compensated energy BRL
 
-```bash
-# Todas as faturas
-curl http://localhost:3000/bills
+### `GET /bills`
 
-# Com filtros
-curl "http://localhost:3000/bills?numero_cliente=7202210726&mes_referencia=SET/2024"
-```
-
-**Response 200:** Array de faturas em snake_case (mesmo formato do upload).
-
-### 3. Dashboard
-
-Retorna dados consolidados para dashboards ricos, com métricas, séries temporais e agregações por cliente.
+Paginated. `page` defaults to 1. `limit` defaults to 20 and cannot exceed 100.
 
 ```bash
-# Totais gerais
-curl http://localhost:3000/bills/dashboard
-
-# Com filtros
-curl "http://localhost:3000/bills/dashboard?numero_cliente=7202210726&mes_referencia=SET/2024"
+curl "http://localhost:3000/bills?numero_cliente=1000000001&page=1&limit=20"
 ```
-
-**Response 200:** Objeto completo em snake_case:
 
 ```json
-{
-  "resumo": {
-    "total_faturas": 10,
-    "total_clientes": 3
-  },
-  "energia": {
-    "consumo_total_kwh": 5000,
-    "energia_compensada_kwh": 1200,
-    "consumo_medio_kwh": 500,
-    "percentual_compensado": 24
-  },
-  "financeiro": {
-    "valor_total_sem_gd": 2500,
-    "economia_gd": 600,
-    "valor_medio_fatura": 250,
-    "percentual_economia": 19.35
-  },
-  "series_periodo": [
-    {
-      "mes_referencia": "SET/2024",
-      "ano_referencia": 2024,
-      "consumo_total_kwh": 1500,
-      "valor_total_sem_gd": 800,
-      "economia_gd": 200,
-      "qtd_faturas": 3
-    }
-  ],
-  "por_cliente": [
-    {
-      "numero_cliente": "7202210726",
-      "qtd_faturas": 5,
-      "consumo_total_kwh": 2500,
-      "valor_total_sem_gd": 1200,
-      "economia_gd": 300
-    }
-  ],
-  "clientes": ["7202210726", "7202210727"],
-  "periodos_disponiveis": [
-    { "mes_referencia": "SET/2024", "ano_referencia": 2024 }
-  ]
-}
+{ "data": [], "page": 1, "limit": 20, "total": 0 }
 ```
 
-| Campo | Descrição |
-|-------|-----------|
-| `resumo` | Total de faturas e clientes |
-| `energia` | Totais, médias e percentual compensado |
-| `financeiro` | Valores e percentual de economia |
-| `series_periodo` | Série temporal para gráficos (mês/ano) |
-| `por_cliente` | Ranking por cliente (consumo total) |
-| `clientes` | Lista de clientes únicos |
-| `periodos_disponiveis` | Períodos para dropdowns |
+### `GET /bills/:id`
 
-### 4. Detalhe de Fatura
+`404` when the id does not exist.
 
-```bash
-curl http://localhost:3000/bills/1
-```
+### `GET /bills/dashboard`
 
-**Response 200:** Objeto da fatura em snake_case.
+Totals, a series by `mes_referencia`, and a ranking by client. Filters: `numero_cliente`, `mes_referencia`. Aggregates run in SQL (`SUM`, `COUNT`, `GROUP BY`).
 
-## Tratamento de Erros
+### `GET /health`
 
-| Código | Cenário |
-|--------|---------|
-| 400 | Arquivo inválido, não-PDF ou fatura não encontrada |
-| 409 | Fatura já processada (cliente + mês duplicado) |
-| 422 | Não foi possível extrair dados do PDF |
-| 503 | Falha ao processar fatura com IA (Gemini indisponível) |
+`{ "status": "ok" }` when the process can reach the database. `503` when it cannot.
 
-## Testes
+## Layouts
 
-```bash
-# Unitários
-pnpm test
+`src/gemini/layouts/` registers extraction layouts. `default` is the GD bill shape above. Add another distributor by implementing `BillLayout` and shipping an anonymized golden file plus a cassette. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-# Com cobertura
-pnpm run test:cov
-```
+## Deploy on Render
 
-## Migrations
+`render.yaml` creates Postgres and the web service in Oregon. Build: `pnpm install --frozen-lockfile && pnpm run build`. Start: `pnpm run db:migrate && pnpm run start:prod`.
 
-```bash
-# Aplicar migrations
-pnpm db:migrate
+Set `GEMINI_API_KEY` and `API_KEY` as secrets. `DATABASE_URL` comes from the blueprint database. Leave `DATABASE_SSL` unset on Render so the TLS option for `*.render.com` stays on.
 
-# Resetar banco (desfaz todas)
-pnpm db:migrate:undo:all
-```
-
-## Deploy em Produção
-
-1. **Build:**
-   ```bash
-   pnpm build
-   ```
-
-2. **Variáveis de ambiente:** Configure `GEMINI_API_KEY`, `DATABASE_PATH` e `PORT` no servidor.
-
-3. **Migrations:** Execute `pnpm db:migrate` antes de subir a aplicação.
-
-4. **Swagger:** Disponível em `/api` — permite testar a API diretamente em produção.
-
-5. **Processo:** Use `pm2`, `systemd` ou seu serviço preferido:
-
-   ```bash
-   node dist/main.js
-   ```
-
-### Deploy no Render (recomendado: PostgreSQL)
-
-O SQLite exige bindings nativos que falham no Render. **Use PostgreSQL** (gratuito no Render):
-
-1. **Crie um banco PostgreSQL** no Render (Dashboard → New → PostgreSQL).
-
-2. **Copie a Internal Database URL** (ou External, se a API estiver em outro serviço).
-
-3. **Configure no Web Service:**
-
-| Campo | Valor |
-|-------|-------|
-| **Build Command** | `pnpm install && pnpm run build` |
-| **Start Command** | `pnpm run start:prod` |
-
-4. **Variáveis de ambiente:**
-
-| Variável | Valor |
-|----------|-------|
-| `DATABASE_URL` | `postgresql://user:pass@host:5432/dbname` (URL do Render) |
-| `GEMINI_API_KEY` | Sua chave da API Gemini |
-
-Quando `DATABASE_URL` começa com `postgres://` ou `postgresql://`, a API usa PostgreSQL automaticamente (sem sqlite3). O Sequelize criará as tabelas com `synchronize: true` no primeiro deploy.
-
-**Opção: Blueprint (render.yaml)**  
-O projeto inclui `render.yaml` para deploy via Blueprint. Isso cria banco e API na mesma região (Oregon), garantindo que a Internal URL funcione. No Dashboard: Blueprints → New Blueprint Instance → selecione o repositório.
-
-**Se Connection Refused persistir:**
-1. **Região:** Web Service e PostgreSQL devem estar na **mesma região** (ex: Oregon). Verifique em Settings → Region.
-2. **DATABASE_URL:** Use "Add from Database" no Web Service para injetar a URL correta (evita typo).
-3. **External URL:** Se Internal falhar, teste com a External Database URL — funciona de qualquer região.
-4. **Aguarde:** A API tenta conectar por até 60s no startup; banco Free pode demorar para acordar.
-
-## Decisões Arquiteturais
-
-- **NestJS**: Estrutura modular, injeção de dependência e boa testabilidade.
-- **Sequelize**: ORM obrigatório no teste; SQLite para desenvolvimento sem dependências externas.
-- **Gemini**: Suporte nativo a PDF multimodal e JSON estruturado via `responseSchema`.
-- **Módulos separados**: `bills`, `dashboard`, `gemini` para responsabilidade única (SOLID).
-- **snake_case nas respostas**: Todas as respostas da API usam snake_case para consistência e integração com frontends.
-- **Logger**: NestJS Logger em todas as camadas para debug e monitoramento.
-- **Swagger**: Documentação interativa para facilitar testes em produção.
-
-## Estrutura do Projeto
+## Project layout
 
 ```
 src/
-├── main.ts
-├── app.module.ts
-├── common/
-│   ├── interceptors/     # SnakeCaseInterceptor
-│   └── utils/            # snake-case.util
-├── gemini/               # Integração com Google Gemini
-├── modules/
-│   ├── bills/           # Upload, listagem, entidade, repositório
-│   └── dashboard/       # Agregações e métricas
-├── config/
-└── migrations/          # Sequelize migrations
+  gemini/          layouts, Gemini client, eval scorer
+  modules/bills/   upload, list, repository
+  modules/dashboard/
+  health/
+migrations/        energy_bills, unique (numero_cliente, mes_referencia)
+fixtures/golden/   expected extraction and synthetic PDF
+fixtures/cassettes recorded model output used by pnpm eval
 ```
 
-## Variáveis Calculadas
+## License
 
-Após extração do LLM, são calculadas:
+[MIT](LICENSE). This repository is an application, so `package.json` stays `private` and is not published to npm.
 
-- **Consumo de Energia Elétrica (kWh)**: Energia Elétrica kWh + Energia SCEEE kWh
-- **Energia Compensada (kWh)**: Energia Compensada GD I kWh
-- **Valor Total sem GD (R$)**: Energia Elétrica R$ + Energia SCEEE R$ + Contrib Ilum
-- **Economia GD (R$)**: Energia Compensada GD I R$
+## Português
+
+API que recebe o PDF de uma fatura de energia, extrai um JSON fixo com o Gemini e grava consumo, energia compensada e valor sem geração distribuída.
+
+O sample versionado marca **100,0%** de acerto por campo (`9/9`, 1 fatura sintética) em `pnpm eval`. Esse número compara o cassette com o golden. Não é benchmark de produção. Para medir o modelo ao vivo: `EVAL_LIVE=1 pnpm eval`.
+
+```bash
+pnpm install
+cp .env.example .env
+pnpm db:migrate
+pnpm start:dev
+```
+
+O schema vem só das migrations (`synchronize` fica desligado). Sem `DATABASE_URL` em Postgres, o banco é SQLite em `DATABASE_PATH`.
+
+| Variável | Função |
+| --- | --- |
+| `GEMINI_API_KEY` | Obrigatória no upload |
+| `API_KEY` | Se existir, o upload exige o header `x-api-key` |
+| `CORS_ORIGIN` | Origens separadas por vírgula. Padrão `http://localhost:3000` |
+| `SWAGGER_ENABLED` | Em produção o Swagger nasce desligado |
+| `DATABASE_SSL` | `false` no Postgres local. No host `*.render.com` o TLS não verifica o certificado |
+
+Endpoints: `POST /bills/upload` (PDF, até 10 MB), `GET /bills` (página `data`, `page`, `limit`, `total`), `GET /bills/:id` (`404` se não existir), `GET /bills/dashboard`, `GET /health`. Duplicata de cliente + mês responde `409`. Extração inválida responde `422`. Gemini indisponível responde `503`.
+
+O formato dos corpos está na seção em inglês acima. Contribuição, layout novo e fixtures: [CONTRIBUTING.md](CONTRIBUTING.md).

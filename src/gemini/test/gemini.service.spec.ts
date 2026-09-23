@@ -24,7 +24,12 @@ jest.mock('@google/genai', () => ({
     },
   })),
   createUserContent: jest.fn((x) => x),
-  createPartFromUri: jest.fn((uri, mime) => ({ fileData: { fileUri: uri, mimeType: mime } })),
+  createPartFromUri: jest.fn((uri, mime) => ({
+    fileData: { fileUri: uri, mimeType: mime },
+  })),
+  createPartFromBase64: jest.fn((data, mime) => ({
+    inlineData: { data, mimeType: mime },
+  })),
 }));
 
 describe('GeminiService', () => {
@@ -60,8 +65,8 @@ describe('GeminiService', () => {
     }).compile();
 
     const svc = module2.get<GeminiService>(GeminiService);
-    await expect(svc.extractEnergyBillFromPdf(Buffer.from('pdf'))).rejects.toThrow(
-      'GEMINI_API_KEY is required',
-    );
+    await expect(
+      svc.extractEnergyBillFromPdf(Buffer.from('pdf')),
+    ).rejects.toThrow('GEMINI_API_KEY is required');
   });
 });

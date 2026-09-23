@@ -13,6 +13,11 @@ import {
   indexes: [
     { fields: ['numero_cliente'] },
     { fields: ['mes_referencia'] },
+    {
+      unique: true,
+      name: 'energy_bills_cliente_mes_unique',
+      fields: ['numero_cliente', 'mes_referencia'],
+    },
   ],
 })
 export class EnergyBill extends Model {

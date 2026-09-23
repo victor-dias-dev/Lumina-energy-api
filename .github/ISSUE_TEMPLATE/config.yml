@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/victor-dias-dev/lumi-energy-bill-api/security/advisories/new
+    about: Report a vulnerability or a leaked key in private.

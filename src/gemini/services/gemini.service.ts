@@ -5,12 +5,13 @@ import {
   createUserContent,
   createPartFromBase64,
 } from '@google/genai';
+import { ZodError } from 'zod';
 import {
-  EnergyBillExtractionResult,
-  EnergyBillExtractionSchema,
-  ENERGY_BILL_JSON_SCHEMA,
-  EXTRACTION_PROMPT,
-} from '../schemas/energy-bill.schema';
+  ExtractionUnprocessableError,
+  ModelUnavailableError,
+} from '../errors/extraction.errors';
+import { EnergyBillExtractionResult } from '../schemas/energy-bill.schema';
+import { getLayout } from '../layouts';
 
 const MODELS = [
   'gemini-2.5-flash',
@@ -38,28 +39,39 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey });
   }
 
-  async extractEnergyBillFromPdf(buffer: Buffer): Promise<EnergyBillExtractionResult> {
+  async extractEnergyBillFromPdf(
+    buffer: Buffer,
+  ): Promise<EnergyBillExtractionResult> {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
       this.logger.error('GEMINI_API_KEY não configurada');
-      throw new Error('GEMINI_API_KEY is required for PDF processing');
+      throw new ModelUnavailableError(
+        'GEMINI_API_KEY is required for PDF processing',
+      );
     }
 
+    const layout = getLayout(
+      this.configService.get<string>('GEMINI_LAYOUT') || 'default',
+    );
     const base64Pdf = buffer.toString('base64');
-    this.logger.debug(`PDF em base64: ${(base64Pdf.length / 1024).toFixed(1)} KB`);
+    this.logger.debug(
+      `PDF em base64: ${(base64Pdf.length / 1024).toFixed(1)} KB`,
+    );
 
     const contents = createUserContent([
       createPartFromBase64(base64Pdf, 'application/pdf'),
-      EXTRACTION_PROMPT,
+      layout.prompt,
     ]);
     const config = {
       responseMimeType: 'application/json' as const,
-      responseSchema: ENERGY_BILL_JSON_SCHEMA,
+      responseSchema: layout.jsonSchema,
     };
 
     const customModel = this.configService.get<string>('GEMINI_MODEL');
     const modelsToTry = customModel ? [customModel, ...MODELS] : [...MODELS];
-    this.logger.debug(`Modelos a tentar: ${modelsToTry.join(', ')}`);
+    this.logger.debug(
+      `Layout ${layout.id}. Modelos a tentar: ${modelsToTry.join(', ')}`,
+    );
 
     let lastError: Error | null = null;
     for (const model of modelsToTry) {
@@ -71,25 +83,38 @@ export class GeminiService {
           config,
         });
         if (!response?.text) {
-          throw new Error('No response from LLM');
+          throw new ExtractionUnprocessableError();
         }
-        const parsed = JSON.parse(response.text);
-        const result = EnergyBillExtractionSchema.parse(parsed);
+        const parsed = JSON.parse(response.text) as unknown;
+        const result = layout.zodSchema.parse(parsed);
         this.logger.log(`Extração concluída com sucesso: model=${model}`);
         return result;
       } catch (err) {
+        if (
+          err instanceof ExtractionUnprocessableError ||
+          err instanceof ModelUnavailableError
+        ) {
+          throw err;
+        }
+        if (err instanceof ZodError || err instanceof SyntaxError) {
+          this.logger.error(`Resposta inválida do modelo ${model}`);
+          throw new ExtractionUnprocessableError();
+        }
         lastError = err as Error;
         const errMsg = err instanceof Error ? err.message : String(err);
         if (is503(err)) {
           this.logger.warn(`Modelo ${model} retornou 503, tentando próximo...`);
           await new Promise((r) => setTimeout(r, 1500));
         } else {
-          this.logger.error(`Erro no modelo ${model}: ${errMsg}`, err instanceof Error ? err.stack : undefined);
-          throw err;
+          this.logger.error(
+            `Erro no modelo ${model}: ${errMsg}`,
+            err instanceof Error ? err.stack : undefined,
+          );
+          throw new ModelUnavailableError();
         }
       }
     }
     this.logger.error('Todos os modelos retornaram 503');
-    throw lastError ?? new Error('Failed to process PDF with Gemini (all models returned 503)');
+    throw new ModelUnavailableError(lastError?.message);
   }
 }

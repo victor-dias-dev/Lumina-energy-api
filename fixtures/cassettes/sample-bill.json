@@ -1,0 +1,8 @@
+{
+  "Nº DO CLIENTE": "1000000001",
+  "Mês de referência": "SET/2024",
+  "Energia Elétrica": { "kWh": 50, "valor": 25.5 },
+  "Energia SCEEE s/ICMS": { "kWh": 476, "valor": 238 },
+  "Energia compensada GD I": { "kWh": 100, "valor": 50 },
+  "Contrib Ilum Publica Municipal": { "valor": 10 }
+}

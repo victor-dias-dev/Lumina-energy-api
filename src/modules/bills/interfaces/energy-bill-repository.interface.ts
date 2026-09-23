@@ -18,6 +18,15 @@ export interface CreateEnergyBillData {
 export interface FindAllFilters {
   numero_cliente?: string;
   mes_referencia?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedBills {
+  data: EnergyBill[];
+  page: number;
+  limit: number;
+  total: number;
 }
 
 export interface AggregatesResult {
@@ -80,7 +89,7 @@ export interface IEnergyBillRepository {
     mesReferencia: string,
   ): Promise<EnergyBill | null>;
   findById(id: number): Promise<EnergyBill | null>;
-  findAll(filters: FindAllFilters): Promise<EnergyBill[]>;
+  findAll(filters: FindAllFilters): Promise<PaginatedBills>;
   getAggregates(filters: FindAllFilters): Promise<AggregatesResult>;
   getDashboard(filters: FindAllFilters): Promise<DashboardResult>;
   delete(id: number): Promise<number>;

@@ -8,6 +8,10 @@ import { BillsService } from '../services/bills.service';
 import { GeminiService } from '../../../gemini/services/gemini.service';
 import { ENERGY_BILL_REPOSITORY } from '../interfaces/energy-bill-repository.interface';
 import { EnergyBillExtractionResult } from '../../../gemini/schemas/energy-bill.schema';
+import {
+  ExtractionUnprocessableError,
+  ModelUnavailableError,
+} from '../../../gemini/errors/extraction.errors';
 
 /**
  * 4.1.1 - Mock da resposta do LLM: não depende de chamadas externas de IA
@@ -72,7 +76,9 @@ describe('BillsService', () => {
       const buffer = Buffer.from('fake-pdf-content');
       const result = await service.processPdf(buffer);
 
-      expect(geminiService.extractEnergyBillFromPdf).toHaveBeenCalledWith(buffer);
+      expect(geminiService.extractEnergyBillFromPdf).toHaveBeenCalledWith(
+        buffer,
+      );
       expect(energyBillRepository.findByClienteAndMes).toHaveBeenCalledWith(
         '7202210726',
         'SET/2024',
@@ -122,30 +128,40 @@ describe('BillsService', () => {
     it('should throw ConflictException when fatura already exists', async () => {
       energyBillRepository.findByClienteAndMes.mockResolvedValue({ id: 1 });
 
-      await expect(
-        service.processPdf(Buffer.from('pdf')),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.processPdf(Buffer.from('pdf'))).rejects.toThrow(
+        ConflictException,
+      );
       expect(energyBillRepository.create).not.toHaveBeenCalled();
     });
 
     it('should throw ServiceUnavailableException when LLM fails', async () => {
       geminiService.extractEnergyBillFromPdf.mockRejectedValue(
-        new Error('API error'),
+        new ModelUnavailableError('API error'),
       );
 
-      await expect(
-        service.processPdf(Buffer.from('pdf')),
-      ).rejects.toThrow(ServiceUnavailableException);
+      await expect(service.processPdf(Buffer.from('pdf'))).rejects.toThrow(
+        ServiceUnavailableException,
+      );
     });
 
-    it('should throw UnprocessableEntityException when LLM returns invalid data', async () => {
+    it('should throw UnprocessableEntityException when extraction is invalid', async () => {
       geminiService.extractEnergyBillFromPdf.mockRejectedValue(
-        new Error('No response from LLM'),
+        new ExtractionUnprocessableError(),
       );
 
-      await expect(
-        service.processPdf(Buffer.from('pdf')),
-      ).rejects.toThrow(UnprocessableEntityException);
+      await expect(service.processPdf(Buffer.from('pdf'))).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+    });
+
+    it('should throw ConflictException when the database unique index rejects the insert', async () => {
+      const duplicate = new Error('duplicate');
+      duplicate.name = 'SequelizeUniqueConstraintError';
+      energyBillRepository.create.mockRejectedValue(duplicate);
+
+      await expect(service.processPdf(Buffer.from('pdf'))).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 

@@ -1,44 +1,35 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { BillsController } from '../controllers/bills.controller';
 import { BillsService } from '../services/bills.service';
-import { DashboardService } from '../../dashboard/services/dashboard.service';
+import { ApiKeyGuard } from '../../../common/guards/api-key.guard';
 
 describe('BillsController', () => {
   let controller: BillsController;
   let billsService: jest.Mocked<BillsService>;
-  let dashboardService: jest.Mocked<DashboardService>;
 
   beforeEach(async () => {
     const mockBillsService = {
       processPdf: jest.fn(),
-      findAll: jest.fn().mockResolvedValue([]),
+      findAll: jest
+        .fn()
+        .mockResolvedValue({ data: [], page: 1, limit: 20, total: 0 }),
       findOne: jest.fn(),
-    };
-
-    const mockDashboardService = {
-      getDashboard: jest.fn().mockResolvedValue({
-        resumo: { totalFaturas: 0, totalClientes: 0 },
-        energia: { consumoTotalKwh: 0, energiaCompensadaKwh: 0, consumoMedioKwh: 0, percentualCompensado: 0 },
-        financeiro: { valorTotalSemGd: 0, economiaGd: 0, valorMedioFatura: 0, percentualEconomia: 0 },
-        seriesPeriodo: [],
-        porCliente: [],
-        clientes: [],
-        periodosDisponiveis: [],
-      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BillsController],
-      providers: [
-        { provide: BillsService, useValue: mockBillsService },
-        { provide: DashboardService, useValue: mockDashboardService },
-      ],
-    }).compile();
+      providers: [{ provide: BillsService, useValue: mockBillsService }],
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<BillsController>(BillsController);
     billsService = module.get(BillsService);
-    dashboardService = module.get(DashboardService);
   });
 
   it('should be defined', () => {
@@ -78,45 +69,29 @@ describe('BillsController', () => {
   });
 
   describe('list', () => {
-    it('should call findAll and return bills', async () => {
-      const bills = [{ id: 1, numeroCliente: '7202210726' }];
-      billsService.findAll.mockResolvedValue(bills as any);
+    it('should call findAll and return a page', async () => {
+      const page = {
+        data: [{ id: 1, numeroCliente: '7202210726' }],
+        page: 1,
+        limit: 20,
+        total: 1,
+      };
+      billsService.findAll.mockResolvedValue(page as any);
 
       const result = await controller.list({
         numero_cliente: '7202210726',
         mes_referencia: 'SET/2024',
+        page: 1,
+        limit: 20,
       } as any);
 
       expect(billsService.findAll).toHaveBeenCalledWith({
         numero_cliente: '7202210726',
         mes_referencia: 'SET/2024',
+        page: 1,
+        limit: 20,
       });
-      expect(result).toEqual(bills);
-    });
-  });
-
-  describe('dashboard', () => {
-    it('should call getDashboard and return dashboard data', async () => {
-      const dashboardData = {
-        resumo: { totalFaturas: 2, totalClientes: 1 },
-        energia: { consumoTotalKwh: 526, energiaCompensadaKwh: 100, consumoMedioKwh: 263, percentualCompensado: 19 },
-        financeiro: { valorTotalSemGd: 273.5, economiaGd: 50, valorMedioFatura: 136.75, percentualEconomia: 15.46 },
-        seriesPeriodo: [],
-        porCliente: [],
-        clientes: ['7202210726'],
-        periodosDisponiveis: [],
-      };
-      dashboardService.getDashboard.mockResolvedValue(dashboardData);
-
-      const result = await controller.dashboard({
-        numero_cliente: '7202210726',
-      } as any);
-
-      expect(dashboardService.getDashboard).toHaveBeenCalledWith({
-        numero_cliente: '7202210726',
-        mes_referencia: undefined,
-      });
-      expect(result).toEqual(dashboardData);
+      expect(result).toEqual(page);
     });
   });
 
@@ -131,11 +106,11 @@ describe('BillsController', () => {
       expect(result).toEqual(bill);
     });
 
-    it('should throw BadRequestException when bill not found', async () => {
+    it('should throw NotFoundException when bill not found', async () => {
       billsService.findOne.mockResolvedValue(null);
 
       await expect(controller.findOne({ id: 999 } as any)).rejects.toThrow(
-        BadRequestException,
+        NotFoundException,
       );
     });
   });

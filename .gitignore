@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.local
 .env.*.local
 
+# npm lockfile — this repo uses pnpm
+package-lock.json
+
 # Data
 /data
 *.sqlite

@@ -1,0 +1,16 @@
+name: Feature
+description: A layout, metric, or API change
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    attributes:
+      label: Problem
+      description: Which bill layout, metric, or workflow is missing?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposal
+    validations:
+      required: true
