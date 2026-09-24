@@ -20,7 +20,9 @@ export class DashboardService {
   }): Promise<DashboardResult> {
     this.logger.debug(`getDashboard: filters=${JSON.stringify(filters)}`);
     const result = await this.energyBillRepository.getDashboard(filters);
-    this.logger.debug(`getDashboard: total_faturas=${result.resumo.totalFaturas}, total_clientes=${result.resumo.totalClientes}`);
+    this.logger.debug(
+      `getDashboard: total_faturas=${result.resumo.totalFaturas}, total_clientes=${result.resumo.totalClientes}`,
+    );
     return result;
   }
 }

@@ -1,0 +1,21 @@
+name: Bug
+description: Something in the API does not match the documented behavior
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: Include the endpoint, the status code, and a redacted request. Do not paste API keys or a real energy bill.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version or commit
+    validations:
+      required: true

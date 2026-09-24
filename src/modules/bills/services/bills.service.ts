@@ -9,9 +9,21 @@ import {
 import { GeminiService } from '../../../gemini/services/gemini.service';
 import { EnergyBillExtractionResult } from '../../../gemini/schemas/energy-bill.schema';
 import {
+  ExtractionUnprocessableError,
+  ModelUnavailableError,
+} from '../../../gemini/errors/extraction.errors';
+import {
   IEnergyBillRepository,
   ENERGY_BILL_REPOSITORY,
+  FindAllFilters,
+  PaginatedBills,
 } from '../interfaces/energy-bill-repository.interface';
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.name === 'SequelizeUniqueConstraintError'
+  );
+}
 
 @Injectable()
 export class BillsService {
@@ -30,23 +42,32 @@ export class BillsService {
 
     try {
       extraction = await this.geminiService.extractEnergyBillFromPdf(buffer);
-      this.logger.debug(`Extração concluída: cliente=${extraction['Nº DO CLIENTE']}, mês=${extraction['Mês de referência']}`);
+      this.logger.debug(
+        `Extração concluída: cliente=${extraction['Nº DO CLIENTE']}, mês=${extraction['Mês de referência']}`,
+      );
     } catch (error) {
-      if (error instanceof Error) {
-        this.logger.error(`Erro na extração: ${error.message}`, error.stack);
-        if (error.message.includes('No response') || error.message.includes('Missing required')) {
-          throw new UnprocessableEntityException(
-            'Não foi possível extrair dados do PDF',
-          );
-        }
+      if (error instanceof ExtractionUnprocessableError) {
+        this.logger.error(`Extração inválida: ${error.message}`);
+        throw new UnprocessableEntityException(
+          'Não foi possível extrair dados do PDF',
+        );
       }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Erro na extração: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw new ServiceUnavailableException(
-        'Falha ao processar fatura com IA',
+        error instanceof ModelUnavailableError
+          ? error.message
+          : 'Falha ao processar fatura com IA',
       );
     }
 
     const data = this.calculateAndMap(extraction);
-    this.logger.debug(`Dados calculados: consumo_total=${data.consumoTotalKwh}kWh, valor=${data.valorTotalSemGd}`);
+    this.logger.debug(
+      `Dados calculados: consumo_total=${data.consumoTotalKwh}kWh, valor=${data.valorTotalSemGd}`,
+    );
 
     const existing = await this.energyBillRepository.findByClienteAndMes(
       data.numeroCliente,
@@ -54,15 +75,31 @@ export class BillsService {
     );
 
     if (existing) {
-      this.logger.warn(`Fatura duplicada: cliente=${data.numeroCliente}, mês=${data.mesReferencia}`);
+      this.logger.warn(
+        `Fatura duplicada: cliente=${data.numeroCliente}, mês=${data.mesReferencia}`,
+      );
       throw new ConflictException(
         'Fatura já processada para este cliente e mês',
       );
     }
 
-    const created = await this.energyBillRepository.create(data);
-    this.logger.log(`Fatura criada: id=${created.id}, cliente=${data.numeroCliente}`);
-    return created;
+    try {
+      const created = await this.energyBillRepository.create(data);
+      this.logger.log(
+        `Fatura criada: id=${created.id}, cliente=${data.numeroCliente}`,
+      );
+      return created;
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        this.logger.warn(
+          `Fatura duplicada no banco: cliente=${data.numeroCliente}, mês=${data.mesReferencia}`,
+        );
+        throw new ConflictException(
+          'Fatura já processada para este cliente e mês',
+        );
+      }
+      throw error;
+    }
   }
 
   private calculateAndMap(extraction: EnergyBillExtractionResult) {
@@ -100,7 +137,7 @@ export class BillsService {
     };
   }
 
-  async findAll(filters: { numero_cliente?: string; mes_referencia?: string }) {
+  async findAll(filters: FindAllFilters): Promise<PaginatedBills> {
     return this.energyBillRepository.findAll(filters);
   }
 

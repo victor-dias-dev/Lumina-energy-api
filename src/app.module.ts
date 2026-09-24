@@ -2,16 +2,22 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { SequelizeModule } from '@nestjs/sequelize';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ZodValidationPipe } from 'nestjs-zod';
 import * as path from 'path';
 import { BillsModule } from './modules/bills/bills.module';
 import { GeminiModule } from './gemini/gemini.module';
 import { EnergyBill } from './modules/bills/entities/energy-bill.entity';
 import { SnakeCaseInterceptor } from './common/interceptors/snake-case.interceptor';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { HealthModule } from './health/health.module';
 
 function buildPostgresConfig() {
   const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl?.startsWith('postgres://') && !databaseUrl?.startsWith('postgresql://')) {
+  if (
+    !databaseUrl?.startsWith('postgres://') &&
+    !databaseUrl?.startsWith('postgresql://')
+  ) {
     return null;
   }
 
@@ -28,7 +34,8 @@ function buildPostgresConfig() {
   const username = decodeURIComponent(parsed.username || '');
   const password = decodeURIComponent(parsed.password || '');
 
-  const useSsl = process.env.DATABASE_SSL !== 'false' && host.includes('.render.com');
+  const useSsl =
+    process.env.DATABASE_SSL !== 'false' && host.includes('.render.com');
 
   return {
     dialect: 'postgres' as const,
@@ -38,7 +45,8 @@ function buildPostgresConfig() {
     username,
     password,
     autoLoadModels: true,
-    synchronize: true,
+    synchronize: false,
+    logging: process.env.NODE_ENV === 'test' ? false : undefined,
     models: [EnergyBill],
     dialectOptions: {
       ssl: useSsl ? { rejectUnauthorized: false } : false,
@@ -65,12 +73,12 @@ function buildPostgresConfig() {
 function buildSqliteConfig() {
   return {
     dialect: 'sqlite' as const,
-    storage:
-      process.env.DATABASE_PATH
-        ? path.resolve(process.env.DATABASE_PATH)
-        : path.join(process.cwd(), 'data', 'energy_bills.sqlite'),
+    storage: process.env.DATABASE_PATH
+      ? path.resolve(process.env.DATABASE_PATH)
+      : path.join(process.cwd(), 'data', 'energy_bills.sqlite'),
     autoLoadModels: true,
-    synchronize: true,
+    synchronize: false,
+    logging: process.env.NODE_ENV === 'test' ? false : undefined,
     models: [EnergyBill],
   };
 }
@@ -84,8 +92,16 @@ function buildSqliteConfig() {
         return postgresConfig ?? buildSqliteConfig();
       },
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: Number(process.env.UPLOAD_RATE_TTL_MS || 60_000),
+        limit: Number(process.env.UPLOAD_RATE_LIMIT || 10),
+      },
+    ]),
     GeminiModule,
     BillsModule,
+    DashboardModule,
+    HealthModule,
   ],
   providers: [
     {

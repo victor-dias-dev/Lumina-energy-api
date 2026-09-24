@@ -14,8 +14,8 @@ services:
     region: oregon  # mesma região do banco (obrigatório para Internal URL)
     plan: free
 
-    buildCommand: pnpm install && pnpm rebuild sqlite3 && pnpm run build
-    startCommand: pnpm run start:prod
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build
+    startCommand: pnpm run db:migrate && pnpm run start:prod
 
     envVars:
       - key: DATABASE_URL
@@ -24,4 +24,4 @@ services:
           property: connectionString
       - key: NODE_ENV
         value: production
-      # GEMINI_API_KEY deve ser adicionado manualmente como Secret
+      # GEMINI_API_KEY e API_KEY devem ser adicionados manualmente como Secret
